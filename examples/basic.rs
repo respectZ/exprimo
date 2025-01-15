@@ -11,7 +11,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let logger = scribe_rust::Logger::default();
 
     let mut ctx = HashMap::new();
-    ctx.insert("x".to_string(), serde_json::Value::Number(5.into()));
+    ctx.insert(
+        "x".to_string(),
+        exprimo::ContextEntry::Variable(serde_json::Value::Number(5.into())),
+    );
     let engine = exprimo::Evaluator::new(
         ctx,
         #[cfg(feature = "logging")]

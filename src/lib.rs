@@ -1,5 +1,5 @@
 use rslint_parser::{
-    ast::{BinExpr, BinOp, CondExpr, DotExpr, Expr, Name, NameRef, UnaryExpr, UnaryOp},
+    ast::{BinExpr, BinOp, CallExpr, CondExpr, DotExpr, Expr, Name, NameRef, UnaryExpr, UnaryOp},
     parse_text, AstNode, SyntaxKind, SyntaxNode,
 };
 
@@ -9,6 +9,8 @@ use thiserror::Error;
 use serde_json::Value;
 
 use std::collections::HashMap;
+
+type BoxFunction = Box<dyn Fn(Vec<Value>) -> Value>;
 
 #[derive(Error, Debug)]
 #[error("Evaluation error")]
@@ -24,20 +26,25 @@ pub struct NodeError {
     node: Option<SyntaxNode>,
 }
 
+pub enum ContextEntry {
+    Variable(Value),
+    Function(BoxFunction),
+}
+
 #[cfg(feature = "logging")]
 use scribe_rust::Logger;
 #[cfg(feature = "logging")]
 use std::sync::Arc;
 
 pub struct Evaluator {
-    context: HashMap<String, serde_json::Value>,
+    context: HashMap<String, ContextEntry>,
     #[cfg(feature = "logging")]
     logger: Arc<Logger>,
 }
 
 impl Evaluator {
     pub fn new(
-        context: HashMap<String, serde_json::Value>,
+        context: HashMap<String, ContextEntry>,
         #[cfg(feature = "logging")] logger: Arc<Logger>,
     ) -> Self {
         Evaluator {
@@ -101,6 +108,9 @@ impl Evaluator {
             SyntaxKind::IDENT => self.evaluate_identifier(&Expr::cast(node.clone()).unwrap()),
             SyntaxKind::UNARY_EXPR => {
                 self.evaluate_prefix_expr(&UnaryExpr::cast(node.clone()).unwrap())
+            }
+            SyntaxKind::CALL_EXPR => {
+                self.evaluate_call_expr(&CallExpr::cast(node.clone()).unwrap())
             }
             _ => Err(NodeError {
                 message: format!("Unsupported syntax kind: {:?}", node.kind()),
@@ -385,11 +395,10 @@ impl Evaluator {
             .trace(&format!("Property Chain: {:?}", property_chain));
 
         // Start from the top-level context
-        let mut value = self
-            .context
-            .get(&property_chain[0])
-            .cloned()
-            .unwrap_or(Value::Null);
+        let mut value = match self.context.get(&property_chain[0]) {
+            Some(ContextEntry::Variable(v)) => v.clone(),
+            _ => Value::Null,
+        };
 
         // Navigate through the nested properties
         for prop in &property_chain[1..] {
@@ -420,7 +429,10 @@ impl Evaluator {
     }
 
     fn evaluate_by_name(&self, identifier_name: String) -> Result<Value, NodeError> {
-        let identifier_value = self.context.get(&identifier_name);
+        let identifier_value = match self.context.get(&identifier_name) {
+            Some(ContextEntry::Variable(v)) => Some(v.clone()),
+            _ => None,
+        };
 
         #[cfg(feature = "logging")]
         self.logger
@@ -510,6 +522,33 @@ impl Evaluator {
             message: format!("Unknown literal type: {}", literal_str),
             node: Some(literal.syntax().clone()),
         })
+    }
+
+    fn evaluate_call_expr(&self, expr: &CallExpr) -> Result<Value, NodeError> {
+        let callee = expr.callee().ok_or_else(|| NodeError {
+            message: "Empty callee in call expression".to_string(),
+            node: Some(expr.syntax().clone()),
+        })?;
+        let func = match self.context.get(&callee.to_string()) {
+            Some(ContextEntry::Function(f)) => f,
+            _ => {
+                return Err(NodeError {
+                    message: format!("Function '{}' not found in context", callee.to_string()),
+                    node: Some(expr.syntax().clone()),
+                })
+            }
+        };
+        match expr.arguments() {
+            Some(args) => {
+                let mut arg_values = Vec::new();
+                for arg in args.args() {
+                    let arg_value = self.evaluate_node(arg.syntax())?;
+                    arg_values.push(arg_value);
+                }
+                return Ok(func(arg_values));
+            }
+            None => Ok(func(vec![])),
+        }
     }
 
     fn to_number(&self, value: &Value) -> Result<f64, NodeError> {

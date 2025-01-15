@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use exprimo::Evaluator;
+use exprimo::{ContextEntry, Evaluator};
 
 #[cfg(feature = "logging")]
 use scribe_rust::Logger;
@@ -8,10 +8,12 @@ use scribe_rust::Logger;
 
     #[test]
     fn test_basic_evaluate_with_context() {
+        use exprimo::ContextEntry;
+
         let mut context = HashMap::new();
 
-        context.insert("a".to_string(), serde_json::Value::Bool(true));
-        context.insert("b".to_string(), serde_json::Value::Bool(false));
+        context.insert("a".to_string(),ContextEntry::Variable(serde_json::Value::Bool(true)));
+        context.insert("b".to_string(), ContextEntry::Variable(serde_json::Value::Bool(false)));
 
         #[cfg(feature = "logging")]
         let logger = Logger::default();
@@ -44,8 +46,8 @@ use scribe_rust::Logger;
     fn test_basic_evaluate_with_nulls() {
         let mut context = HashMap::new();
 
-        context.insert("a".to_string(), serde_json::Value::Null);
-        context.insert("b".to_string(), serde_json::Value::Bool(true));
+        context.insert("a".to_string(), ContextEntry::Variable(serde_json::Value::Null));
+        context.insert("b".to_string(), ContextEntry::Variable(serde_json::Value::Bool(true)));
 
         #[cfg(feature = "logging")]
         let logger = Logger::default();
@@ -80,9 +82,9 @@ use scribe_rust::Logger;
     //
     //     context.insert(
     //         "a".to_string(),
-    //         serde_json::Value::String("".to_string()),
+    //         ContextEntry::Variable(serde_json::Value::String("".to_string())),
     //     );
-    //     context.insert("b".to_string(), serde_json::Value::Bool(true));
+    //     context.insert("b".to_string(), ContextEntry::Variable(serde_json::Value::Bool(true)));
     //
     //     #[cfg(feature = "logging")]
     //     let logger = Logger::default();
@@ -116,7 +118,7 @@ use scribe_rust::Logger;
         
         let mut context = HashMap::new();
 
-        context.insert("a".to_string(), serde_json::Value::String("true".to_string()));
+        context.insert("a".to_string(), ContextEntry::Variable(serde_json::Value::String("true".to_string())));
 
         #[cfg(feature = "logging")]
         let logger = Logger::default();
@@ -133,4 +135,33 @@ use scribe_rust::Logger;
         
         assert_eq!(res1, true);
                
+    }
+
+    #[test]
+    fn test_function() {
+        
+        let mut context = HashMap::new();
+
+        context.insert("a".to_string(), ContextEntry::Variable(serde_json::Value::Number(5.into())));
+        context.insert("b".to_string(), ContextEntry::Variable(serde_json::Value::Number(62.into())));
+        context.insert("mul".to_string(), ContextEntry::Function(Box::new(|args| {
+            let a = args[0].as_f64().unwrap();
+            let b = args[1].as_f64().unwrap();
+            serde_json::Value::Number(serde_json::Number::from_f64(a * b).unwrap())
+        })));
+
+        #[cfg(feature = "logging")]
+        let logger = Logger::default();
+
+        let evaluator = Evaluator::new(
+            context,
+            #[cfg(feature = "logging")]
+            logger,
+        );
+
+        let expr1 = "mul(a,b)";
+
+        let res1 = evaluator.evaluate(&expr1).unwrap();
+
+        assert_eq!(res1, 310.0);
     }
