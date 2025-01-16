@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use exprimo::Evaluator;
+    use exprimo::{ContextEntry, Evaluator};
     use serde_json::Value;
     use std::collections::HashMap;
 
@@ -13,12 +13,12 @@ mod tests {
         context.insert(key.to_string(), json_str.to_string());
     }
 
-    pub fn to_json(context: &HashMap<String, String>) -> HashMap<String, serde_json::Value> {
+    pub fn to_json(context: &HashMap<String, String>) -> HashMap<String, ContextEntry> {
         let mut json = HashMap::new();
         for (key, value) in context.iter() {
             let parsed_value =
                 serde_json::from_str(value).unwrap_or_else(|_| Value::String(value.clone()));
-            json.insert(key.to_string(), parsed_value);
+            json.insert(key.to_string(), ContextEntry::Variable(parsed_value));
         }
         json
     }
