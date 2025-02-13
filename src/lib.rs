@@ -112,6 +112,13 @@ impl Evaluator {
             SyntaxKind::CALL_EXPR => {
                 self.evaluate_call_expr(&CallExpr::cast(node.clone()).unwrap())
             }
+            SyntaxKind::GROUPING_EXPR => {
+                let expr = node.first_child().ok_or_else(|| NodeError {
+                    message: "[Empty grouping expression]".to_string(),
+                    node: None,
+                })?;
+                self.evaluate_node(&expr)
+            }
             _ => Err(NodeError {
                 message: format!("Unsupported syntax kind: {:?}", node.kind()),
                 node: Some(node.clone()),

@@ -165,3 +165,33 @@ use scribe_rust::Logger;
 
         assert_eq!(res1, 310.0);
     }
+
+    #[test]
+    fn test_grouping() {
+        #[cfg(feature = "logging")]
+        let logger = Logger::default();
+
+        let expr1 = "((1+2)*3)";
+        let expr2 = "((1+2)*3)+4";
+        let expr3 = "((1+2)*3)+4*5";
+        let expr4 = "((1+2)*3)+4*5/2";
+        let expr5 = "((1+2)*3)+4*5/2-1";
+
+        let evaluator = Evaluator::new(
+            HashMap::new(),
+            #[cfg(feature = "logging")]
+            logger,
+        );
+
+        let res1 = evaluator.evaluate(&expr1).unwrap();
+        let res2 = evaluator.evaluate(&expr2).unwrap();
+        let res3 = evaluator.evaluate(&expr3).unwrap();
+        let res4 = evaluator.evaluate(&expr4).unwrap();
+        let res5 = evaluator.evaluate(&expr5).unwrap();
+
+        assert_eq!(res1, 9.0);
+        assert_eq!(res2, 13.0);
+        assert_eq!(res3, 29.0);
+        assert_eq!(res4, 19.0);
+        assert_eq!(res5, 18.0);
+    }
