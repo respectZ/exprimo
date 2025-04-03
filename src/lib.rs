@@ -613,22 +613,46 @@ impl Evaluator {
                 node: Some(expr.syntax().clone()),
             });
         }
-        if let Some(ContextEntry::Function(f)) = self.context.get(&callee.to_string()) {
-            let result = f(args);
-            return Ok(result);
-        } else {
-            let name = callee.syntax().text().to_string();
-            if name == "semver" {
-                let semver = SemverParser::parse(args).map_err(|e| NodeError {
-                    message: format!("Error parsing semver: {}", e),
-                    node: Some(expr.syntax().clone()),
-                })?;
-                return Ok(json!(semver));
+        match self.context.get(&callee.to_string()) {
+            Some(ContextEntry::Function(f)) => Ok(f(args)),
+            _ => {
+                let name = callee.syntax().text().to_string();
+                if name == "semver" {
+                    SemverParser::parse(args)
+                        .map(|v| json!(v))
+                        .map_err(|e| NodeError {
+                            message: format!("Error parsing semver: {}", e),
+                            node: Some(expr.syntax().clone()),
+                        })
+                } else if let Some(first) = args.get(0) {
+                    let rest = args.get(1..).unwrap_or(&[]);
+                    match first {
+                        Value::String(s) => Self::str_method(s, &name, rest.to_vec()),
+                        Value::Array(arr) => Self::array_method(arr, &name, rest.to_vec()),
+                        _ => Err(NodeError {
+                            message: format!(
+                                "Unsupported object type for method call: {}",
+                                first.to_string()
+                            ),
+                            node: Some(expr.syntax().clone()),
+                        })?,
+                    }
+                    .map_err(|e| NodeError {
+                        message: format!(
+                            "Error calling method '{}' on object: {}. {}",
+                            name,
+                            first.to_string(),
+                            e
+                        ),
+                        node: Some(expr.syntax().clone()),
+                    })
+                } else {
+                    Err(NodeError {
+                        message: format!("Function '{}' not found in context", callee.to_string()),
+                        node: Some(expr.syntax().clone()),
+                    })
+                }
             }
-            return Err(NodeError {
-                message: format!("Function '{}' not found in context", callee.to_string()),
-                node: Some(expr.syntax().clone()),
-            });
         }
     }
 
