@@ -13,6 +13,7 @@ keywords = ["expression", "eval", "js-expression", "js-eval", "javascript"]
 
 [dependencies]
 anyhow = "~1"
+regex = "1.11.1"
 rslint_parser = "~0.3"
 scribe-rust = { version = "~0.2", optional = true }
 serde = "~1"

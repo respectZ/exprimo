@@ -1,9 +1,11 @@
+pub mod method;
+use method::{array::ArrayMethod, str::StrMethod};
 use rslint_parser::{
     ast::{BinExpr, BinOp, CallExpr, CondExpr, DotExpr, Expr, Name, NameRef, UnaryExpr, UnaryOp},
     parse_text, AstNode, SyntaxKind, SyntaxNode,
 };
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use thiserror::Error;
 
 use serde_json::Value;
@@ -536,6 +538,56 @@ impl Evaluator {
             message: "Empty callee in call expression".to_string(),
             node: Some(expr.syntax().clone()),
         })?;
+        let args = match expr.arguments() {
+            Some(args) => {
+                let args = args.args();
+                let mut arg_values = Vec::new();
+                for arg in args {
+                    let arg_value = self.evaluate_node(arg.syntax())?;
+                    arg_values.push(arg_value);
+                }
+                arg_values
+            }
+            None => vec![],
+        };
+        if callee.syntax().kind() == SyntaxKind::DOT_EXPR {
+            let dot_expr = DotExpr::cast(callee.syntax().clone()).ok_or_else(|| NodeError {
+                message: "Invalid callee in call expression".to_string(),
+                node: Some(expr.syntax().clone()),
+            })?;
+            let obj = dot_expr.object().ok_or_else(|| NodeError {
+                message: "Empty object in dot expression".to_string(),
+                node: Some(expr.syntax().clone()),
+            })?;
+            let prop = dot_expr.prop().ok_or_else(|| NodeError {
+                message: "Empty property in dot expression".to_string(),
+                node: Some(expr.syntax().clone()),
+            })?;
+            let obj_value = self.evaluate_node(obj.syntax())?;
+            let prop_name = prop.syntax().text().to_string();
+            let result = match obj_value {
+                Value::String(s) => Self::str_method(&s, &prop_name, args),
+                Value::Array(arr) => Self::array_method(&arr, &prop_name, args),
+                _ => {
+                    return Err(NodeError {
+                        message: format!(
+                            "Unsupported object type for method call: {}",
+                            obj_value.to_string()
+                        ),
+                        node: Some(expr.syntax().clone()),
+                    })
+                }
+            };
+            return result.map_err(|e| NodeError {
+                message: format!(
+                    "Error calling method '{}' on object: {}. {}",
+                    prop_name,
+                    obj.text().to_string(),
+                    e
+                ),
+                node: Some(expr.syntax().clone()),
+            });
+        }
         let func = match self.context.get(&callee.to_string()) {
             Some(ContextEntry::Function(f)) => f,
             _ => {
@@ -545,17 +597,7 @@ impl Evaluator {
                 })
             }
         };
-        match expr.arguments() {
-            Some(args) => {
-                let mut arg_values = Vec::new();
-                for arg in args.args() {
-                    let arg_value = self.evaluate_node(arg.syntax())?;
-                    arg_values.push(arg_value);
-                }
-                return Ok(func(arg_values));
-            }
-            None => Ok(func(vec![])),
-        }
+        Ok(func(args))
     }
 
     fn to_number(&self, value: &Value) -> Result<f64, NodeError> {
@@ -598,5 +640,39 @@ impl Evaluator {
             Value::Array(_) => "[Array]".to_string(),
             Value::Object(_) => "[Object]".to_string(),
         }
+    }
+
+    fn str_method(value: &str, method: &str, args: Vec<Value>) -> Result<Value> {
+        let str_method = StrMethod::new(args);
+        let result = match method {
+            "replace" => str_method.replace(value),
+            "contains" => str_method.contains(value),
+            "split" => str_method.split(value),
+            "indexOf" => str_method.index_of(value),
+            "lastIndexOf" => str_method.last_index_of(value),
+            "toUpperCase" => str_method.to_upper_case(value),
+            "toLowerCase" => str_method.to_lower_case(value),
+            "substring" => str_method.substring(value),
+            "startsWith" => str_method.starts_with(value),
+            "endsWith" => str_method.ends_with(value),
+            "regexReplace" => str_method.regex_replace(value),
+            "length" => str_method.length(value),
+            "trim" => str_method.trim(value),
+            _ => {
+                bail!("Unknown string method: {}", method);
+            }
+        };
+        result
+    }
+
+    fn array_method(value: &Vec<Value>, method: &str, args: Vec<Value>) -> Result<Value> {
+        let array_method = ArrayMethod::new(args);
+        let result = match method {
+            "join" => array_method.join(value),
+            _ => {
+                bail!("Unknown array method: {}", method);
+            }
+        };
+        result
     }
 }
