@@ -28,6 +28,21 @@ impl SemverParser {
         Ok(serde_json::from_value(Value::Object(obj.clone()))
             .map_err(|_| anyhow!("Invalid semver format"))?)
     }
+    pub fn from_ver_object(obj: &serde_json::Map<String, Value>) -> Result<Self> {
+        let major = obj
+            .get("major")
+            .ok_or_else(|| anyhow!("Missing 'major' field"))
+            .and_then(Self::to_number)?;
+        let minor = obj
+            .get("minor")
+            .ok_or_else(|| anyhow!("Missing 'minor' field"))
+            .and_then(Self::to_number)?;
+        let patch = obj
+            .get("patch")
+            .ok_or_else(|| anyhow!("Missing 'patch' field"))
+            .and_then(Self::to_number)?;
+        Ok(Self::new(major, minor, patch))
+    }
     pub fn parse(values: Vec<Value>) -> Result<Self> {
         let result = match values.len() {
             1 => match &values[0] {
@@ -37,7 +52,9 @@ impl SemverParser {
                         .map(|v| Self::to_number(v))
                         .collect::<Result<Vec<u64>>>()?,
                 ),
-                Value::Object(obj) => Self::from_object(obj)?,
+                Value::Object(obj) => {
+                    Self::from_ver_object(obj).or_else(|_| Self::from_object(obj))?
+                }
                 _ => {
                     bail!("Invalid semver format")
                 }

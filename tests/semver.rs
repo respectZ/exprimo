@@ -80,3 +80,30 @@ fn test_semver_int() {
     assert_eq!(res3, false);
     assert_eq!(res4, true);
 }
+
+#[test]
+fn test_semver_obj() {
+    let mut context = HashMap::new();
+
+    let mut map1 = serde_json::Map::new();
+    map1.insert("major".to_string(), Value::Number(0.into()));
+    map1.insert("minor".to_string(), Value::Number(0.into()));
+    map1.insert("patch".to_string(), Value::Number(1.into()));
+
+    let mut map2 = serde_json::Map::new();
+    map2.insert("major".to_string(), Value::Number(1.into()));
+    map2.insert("minor".to_string(), Value::Number(0.into()));
+    map2.insert("patch".to_string(), Value::Number(1.into()));
+
+    context.insert("a".to_string(), ContextEntry::Variable(Value::Object(map1)));
+    context.insert("b".to_string(), ContextEntry::Variable(Value::Object(map2)));
+    let evaluator = Evaluator::new(context);
+    let res1 = evaluator.evaluate("semver(a) < semver(b)").unwrap();
+    let res2 = evaluator.evaluate("semver(a) > semver(b)").unwrap();
+    let res3 = evaluator.evaluate("semver(a) == semver(b)").unwrap();
+    let res4 = evaluator.evaluate("semver(a) != semver(b)").unwrap();
+    assert_eq!(res1, true);
+    assert_eq!(res2, false);
+    assert_eq!(res3, false);
+    assert_eq!(res4, true);
+}
