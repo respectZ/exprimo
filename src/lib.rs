@@ -1,6 +1,6 @@
 pub mod function;
 pub mod method;
-use function::semver::SemverParser;
+use function::{math, semver::SemverParser};
 use method::{array::ArrayMethod, str::StrMethod};
 use rslint_parser::{
     ast::{BinExpr, BinOp, CallExpr, CondExpr, DotExpr, Expr, Name, NameRef, UnaryExpr, UnaryOp},
@@ -12,7 +12,7 @@ use thiserror::Error;
 
 use serde_json::{json, Value};
 
-use std::collections::HashMap;
+use std::{collections::HashMap, f64};
 
 type BoxFunction = Box<dyn Fn(Vec<Value>) -> Value>;
 
@@ -629,10 +629,56 @@ impl Evaluator {
                     match first {
                         Value::String(s) => Self::str_method(s, &name, rest.to_vec()),
                         Value::Array(arr) => Self::array_method(arr, &name, rest.to_vec()),
+                        Value::Number(value) => {
+                            let second = rest.get(0).unwrap_or(&Value::Null);
+                            match name.as_str() {
+                                "floor" => math::unary_function(value, f64::floor),
+                                "ceil" => math::unary_function(value, f64::ceil),
+                                "round" => math::unary_function(value, f64::round),
+                                "sin" => math::unary_function(value, f64::sin),
+                                "cos" => math::unary_function(value, f64::cos),
+                                "tan" => math::unary_function(value, f64::tan),
+                                "asin" => math::unary_function(value, f64::asin),
+                                "acos" => math::unary_function(value, f64::acos),
+                                "atan" => math::unary_function(value, f64::atan),
+                                "sqrt" => math::unary_function(value, f64::sqrt),
+                                "abs" => math::unary_function(value, f64::abs),
+                                "clamp" => math::unary_function(value, |x| x.clamp(0.0, 1.0)),
+                                "bitiwseNot" => math::unary_function(value, |x| {
+                                    !((f64::round(x)) as i64) as f64
+                                }),
+                                "atan2" => math::binary_function(value, second, f64::atan2),
+                                "min" => math::binary_function(value, second, f64::min),
+                                "max" => math::binary_function(value, second, f64::max),
+                                "mod" => math::binary_function(value, second, |x, y| x % y),
+                                "pow" => math::binary_function(value, second, f64::powf),
+                                "bitwiseAnd" => math::binary_function(value, second, |x, y| {
+                                    (((f64::round(x)) as i64) & ((f64::round(y)) as i64)) as f64
+                                }),
+                                "bitwiseOr" => math::binary_function(value, second, |x, y| {
+                                    (((f64::round(x)) as i64) | ((f64::round(y)) as i64)) as f64
+                                }),
+                                "bitshiftLeft" => math::binary_function(value, second, |x, y| {
+                                    (((f64::round(x)) as i64) << ((f64::round(y)) as i64)) as f64
+                                }),
+                                "bitshiftRight" => math::binary_function(value, second, |x, y| {
+                                    (((f64::round(x)) as i64) >> ((f64::round(y)) as i64)) as f64
+                                }),
+                                _ => {
+                                    return Err(NodeError {
+                                        message: format!(
+                                            "Function '{}' not found in context",
+                                            name
+                                        ),
+                                        node: Some(expr.syntax().clone()),
+                                    });
+                                }
+                            }
+                        }
                         _ => Err(NodeError {
                             message: format!(
-                                "Unsupported object type for method call: {}",
-                                first.to_string()
+                                "Function '{}' not found in context.",
+                                callee.to_string()
                             ),
                             node: Some(expr.syntax().clone()),
                         })?,
