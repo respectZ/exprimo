@@ -1,4 +1,6 @@
+pub mod function;
 pub mod method;
+use function::semver::SemverParser;
 use method::{array::ArrayMethod, str::StrMethod};
 use rslint_parser::{
     ast::{BinExpr, BinOp, CallExpr, CondExpr, DotExpr, Expr, Name, NameRef, UnaryExpr, UnaryOp},
@@ -8,7 +10,7 @@ use rslint_parser::{
 use anyhow::{bail, Result};
 use thiserror::Error;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use std::collections::HashMap;
 
@@ -168,6 +170,29 @@ impl Evaluator {
 
         #[cfg(feature = "logging")]
         self.logger.trace(&format!("BinaryOp op_details {:?}", op));
+
+        if let (Value::Object(l), Value::Object(r)) = (&left_value, &right_value) {
+            if let (Ok(l_obj), Ok(r_obj)) =
+                (SemverParser::from_object(l), SemverParser::from_object(r))
+            {
+                let cmp = l_obj.version.cmp_precedence(&r_obj.version);
+                let res = match op {
+                    Some((_, BinOp::Equality | BinOp::StrictEquality)) => cmp.is_eq(),
+                    Some((_, BinOp::Inequality | BinOp::StrictInequality)) => !cmp.is_eq(),
+                    Some((_, BinOp::GreaterThan)) => cmp.is_gt(),
+                    Some((_, BinOp::LessThan)) => cmp.is_lt(),
+                    Some((_, BinOp::GreaterThanOrEqual)) => cmp.is_ge(),
+                    Some((_, BinOp::LessThanOrEqual)) => cmp.is_le(),
+                    _ => {
+                        return Err(NodeError {
+                            message: "Unsupported binary operator for semver".to_string(),
+                            node: Some(bin_expr.syntax().clone()),
+                        });
+                    }
+                };
+                return Ok(Value::Bool(res));
+            }
+        }
 
         let result = match op {
             Some((_, BinOp::Plus)) => self.add_values(left_value, right_value),
@@ -588,16 +613,23 @@ impl Evaluator {
                 node: Some(expr.syntax().clone()),
             });
         }
-        let func = match self.context.get(&callee.to_string()) {
-            Some(ContextEntry::Function(f)) => f,
-            _ => {
-                return Err(NodeError {
-                    message: format!("Function '{}' not found in context", callee.to_string()),
+        if let Some(ContextEntry::Function(f)) = self.context.get(&callee.to_string()) {
+            let result = f(args);
+            return Ok(result);
+        } else {
+            let name = callee.syntax().text().to_string();
+            if name == "semver" {
+                let semver = SemverParser::parse(args).map_err(|e| NodeError {
+                    message: format!("Error parsing semver: {}", e),
                     node: Some(expr.syntax().clone()),
-                })
+                })?;
+                return Ok(json!(semver));
             }
-        };
-        Ok(func(args))
+            return Err(NodeError {
+                message: format!("Function '{}' not found in context", callee.to_string()),
+                node: Some(expr.syntax().clone()),
+            });
+        }
     }
 
     fn to_number(&self, value: &Value) -> Result<f64, NodeError> {
